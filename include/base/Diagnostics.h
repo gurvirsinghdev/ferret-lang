@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "Ansi.h"
 #include "Token.h"
 
 namespace base {
@@ -49,15 +50,16 @@ namespace base {
       }
 
       void logAllBlocks() const {
-         if (!blocks.empty()) {
-            std::cerr << blocks.size() << " errors." << std::endl;
-         }
          for (const auto &[details, lexerError]: blocks) {
             switch (details.level) {
                case DIAGNOSTICS_ERROR:
                   logErrorBlock(details, lexerError);
                   break;
             }
+         }
+
+         if (!blocks.empty()) {
+            std::cerr << blocks.size() << " errors generated." << std::endl;
          }
       }
 
@@ -67,26 +69,38 @@ namespace base {
       std::vector<DiagnosticBlock> blocks;
 
       static void logErrorBlock(const DiagnosticDetails &details, const LexerError &lexerError) {
-         std::cerr << "error: " << lexerError.getError() << std::endl;
-         logFilepathLine(details.filepath, details.location.line, details.location.column, details.location.length);
-         logLineContent(details.location.line, lexerError.getLineContent());
+         std::cerr << Ansi::BOLD << Ansi::RED << "error[E001]: " << lexerError.getError() << std::endl;
+         logFilepathLine(details.filepath, details.location.line, details.location.column);
+         logLineContent(details.location.line, lexerError.getLineContent(), details.location.column,
+                        details.location.length);
          for (int i = 0; i < details.location.column; i++)
             std::cerr << " ";
+         std::cerr << Ansi::YELLOW;
          for (int i = 0; i < details.location.length; i++)
             std::cerr << "^";
          std::cerr << " " << lexerError.getMessage() << std::endl;
-         std::cerr << "   hint: " << lexerError.getHint() << "\n" << std::endl;
+         std::cerr << Ansi::CYAN << "   hint: " << lexerError.getHint() << "\n" << Ansi::RESET << std::endl;
       }
 
-      static void logFilepathLine(const std::string &filepath, const std::size_t line, const std::size_t column,
-                                  const std::size_t length) noexcept {
-         const std::size_t endingColumn = column + length;
-         std::cerr << " --> " << filepath << ":" << line << ":" << endingColumn << std::endl;
+      static void logFilepathLine(const std::string &filepath, const std::size_t line,
+                                  const std::size_t column) noexcept {
+         std::cerr << Ansi::DIM << " --> " << filepath << ":" << line << ":" << column << std::endl;
       }
 
-      static void logLineContent(const std::size_t line, const std::string &lineContent) noexcept {
+      static void logLineContent(const std::size_t line, const std::string &lineContent,
+                                 const std::size_t errorStartColumn, const std::size_t errorTokenLength) noexcept {
          std::cerr << "   |" << std::endl;
-         std::cerr << " " << line << " | " << lineContent << std::endl;
+         std::cerr << " " << line << " | ";
+         for (int i = 0; i < lineContent.size(); i++) {
+            if (i + 1 == errorStartColumn) {
+               std::cerr << Ansi::RESET << Ansi::BOLD;
+            }
+            if (i + 1 == errorStartColumn + errorTokenLength) {
+               std::cerr << Ansi::DIM;
+            }
+            std::cerr << lineContent[i];
+         }
+         std::cerr << Ansi::DIM << std::endl;
          std::cerr << "   |";
       }
    };
