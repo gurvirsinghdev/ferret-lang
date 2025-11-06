@@ -6,21 +6,24 @@
 #include <vector>
 
 #include "Ansi.h"
+#include "ErrorCodes.h"
 #include "Token.h"
 
 namespace base {
    class LexerError {
    public:
-      LexerError(std::string lineContent, std::string error, std::string message, std::string hint) :
-          lineContent_(std::move(lineContent)), error_(std::move(error)), message_(std::move(message)),
+      LexerError(ErrorCode code, std::string lineContent, std::string error, std::string message, std::string hint) :
+          code_(code), lineContent_(std::move(lineContent)), error_(std::move(error)), message_(std::move(message)),
           hint_(std::move(hint)) {}
 
+      [[nodiscard]] ErrorCode getErrorCode() const { return code_; }
       [[nodiscard]] std::string getLineContent() const { return lineContent_; }
       [[nodiscard]] std::string getError() const { return error_; }
       [[nodiscard]] std::string getMessage() const { return message_; }
       [[nodiscard]] std::string getHint() const { return hint_; }
 
    private:
+      ErrorCode code_;
       std::string lineContent_;
       std::string error_;
       std::string message_;
@@ -69,7 +72,8 @@ namespace base {
       std::vector<DiagnosticBlock> blocks;
 
       static void logErrorBlock(const DiagnosticDetails &details, const LexerError &lexerError) {
-         std::cerr << Ansi::BOLD << Ansi::RED << "error[E001]: " << lexerError.getError() << std::endl;
+         std::cerr << Ansi::BOLD << Ansi::RED << "error[" << static_cast<int>(lexerError.getErrorCode())
+                   << "]: " << lexerError.getError() << std::endl;
          logFilepathLine(details.filepath, details.location.line, details.location.column);
          logLineContent(details.location.line, lexerError.getLineContent(), details.location.column,
                         details.location.length);

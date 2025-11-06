@@ -74,13 +74,12 @@ namespace frontend {
             }
 
             if (std::isdigit(getCurrentCharacter())) {
-               walkAhead();
-
                bool isFloat = false;
                bool isInvalidFloatLiteral = false;
                std::size_t startingColumn = column_;
                std::size_t startingPosition = position_;
 
+               walkAhead();
                while (std::isdigit(getCurrentCharacter()) || getCurrentCharacter() == '.') {
                   if (getCurrentCharacter() == '.') {
                      if (isFloat) {
@@ -102,10 +101,16 @@ namespace frontend {
                         fileReader_.getFilepath(),
                         base::TokenLocation{line_ + 1, startingColumn, columnLength},
                   };
-                  base::LexerError lexerError(getCurrentLine(), "Invalid float literal.",
-                                              "Numbers can have at most one decimal point.",
+                  base::LexerError lexerError(base::ErrorCode::INVALID_FLOAT_LITERAL, getCurrentLine(),
+                                              "Invalid float literal.", "Numbers can have at most one decimal point.",
                                               "Remove any extra decimal points to form a valid number.");
                   diagnostics.createBlock(diagnosticDetails, lexerError);
+               } else {
+                  base::TokenLocation tokenLocation{line_, startingPosition, position_ - startingPosition};
+                  base::Token token(isFloat ? base::TokenType::TOKEN_FLOAT_LITERAL
+                                            : base::TokenType::TOKEN_INTEGER_LITERAL,
+                                    tokenLocation);
+                  tokens.emplace_back(token);
                }
 
                continue;

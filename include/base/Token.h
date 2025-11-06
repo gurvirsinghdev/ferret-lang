@@ -11,6 +11,9 @@ namespace base {
     */
    enum class TokenType {
       TOKEN_IDENTIFIER,
+      TOKEN_FLOAT_LITERAL,
+      TOKEN_INTEGER_LITERAL,
+
       TOKEN_LPAREN,
       TOKEN_RPAREN,
       TOKEN_LBRACE,
@@ -18,9 +21,6 @@ namespace base {
       TOKEN_SEMICOLON,
    };
 
-   /**
-    *
-    */
    struct TokenLocation {
       std::size_t line;
       std::size_t column;
