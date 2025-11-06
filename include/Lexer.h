@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "Diagnostics.h"
+#include "base/FileReader.cpp.h"
 
 /**
  * This namespace represents the first part of the compiler.
@@ -32,6 +33,15 @@ namespace frontend {
       TOKEN_SEMICOLON,
    };
 
+   /**
+    *
+    */
+   struct TokenLocation {
+      std::size_t line;
+      std::size_t column;
+      std::size_t length;
+   };
+
 
    /**
     * A token is the smallest unit recognised by the compiler.
@@ -40,19 +50,17 @@ namespace frontend {
     */
    class Token {
    public:
-      Token(const TokenType type, const std::size_t line, const std::size_t column, const std::size_t length) :
-          type_(type), line_(line), column_(column), length_(length) {}
+      Token(const TokenType type, const TokenLocation &location) : type_(type), location_(location) {}
 
       [[nodiscard]] TokenType getType() const { return type_; }
-      [[nodiscard]] std::size_t getLine() const { return line_; }
-      [[nodiscard]] std::size_t getColumn() const { return column_; }
-      [[nodiscard]] std::size_t getLength() const { return length_; }
+      [[nodiscard]] std::size_t getLine() const { return location_.line; }
+      [[nodiscard]] std::size_t getColumn() const { return location_.column; }
+      [[nodiscard]] std::size_t getLength() const { return location_.length; }
+      [[nodiscard]] TokenLocation getLocation() const { return location_; }
 
    private:
       TokenType type_;
-      std::size_t line_;
-      std::size_t column_;
-      std::size_t length_;
+      TokenLocation location_;
    };
 
 
@@ -63,15 +71,10 @@ namespace frontend {
     */
    class Lexer {
    public:
-      explicit Lexer(std::string filepath) : filepath_(std::move(filepath)), position_(0), line_(0), column_(0) {}
+      explicit Lexer(base::FileReader fileReader) :
+          fileReader_(std::move(fileReader)), line_(0), column_(0), position_(0) {}
 
       std::vector<std::unique_ptr<Token>> tokenize() {
-         std::ifstream file(filepath_);
-         if (!file.is_open()) {
-            std::cerr << "Unable to open the source file!" << std::endl;
-         }
-         source_.assign(std::istreambuf_iterator(file), {});
-
          std::vector<std::unique_ptr<Token>> tokens;
          while (!isEOF()) {
             if (std::isspace(getCurrentCharacter())) {
@@ -91,7 +94,7 @@ namespace frontend {
                while (std::isdigit(getCurrentCharacter()) || getCurrentCharacter() == '.') {
                   if (getCurrentCharacter() == '.') {
                      if (isFloat) {
-                        Diagnostics::logError(filepath_, line_ + 1, startingColumn, position_ - startingPosition,
+                        Diagnostics::logError(fileReader_.getFilepath(), line_ + 1, startingColumn, position_ - startingPosition,
                                               getCurrentLine(), "Invalid float literal.",
                                               "Numbers can have at most one decimal point.",
                                               "Remove any extra decimal points to form a valid number.");
@@ -105,19 +108,18 @@ namespace frontend {
 
             walkAhead();
          }
-         file.close();
          return tokens;
       }
 
    private:
-      std::string filepath_;
-      std::string source_;
-      std::size_t position_;
+      base::FileReader fileReader_;
+
       std::size_t line_;
       std::size_t column_;
+      std::size_t position_;
 
-      [[nodiscard]] bool isEOF() const { return position_ >= source_.length(); }
-      [[nodiscard]] char getCurrentCharacter() const { return source_[position_]; }
+      [[nodiscard]] bool isEOF() const { return position_ >= fileReader_.getSourceCode().length(); }
+      [[nodiscard]] char getCurrentCharacter() const { return fileReader_.getSourceCode()[position_]; }
 
       void walkAhead() {
          column_++;
@@ -127,7 +129,7 @@ namespace frontend {
       [[nodiscard]] std::string getLine(const std::size_t line) const {
          size_t linePtr = 0;
          std::string lineContent;
-         std::stringstream sourceStream(source_);
+         std::stringstream sourceStream(fileReader_.getRawSourceCode());
          while (linePtr <= line) {
             std::getline(sourceStream, lineContent);
             linePtr++;

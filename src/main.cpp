@@ -1,12 +1,11 @@
+#include <string>
+#include "base/FileReader.cpp.h"
 #include "Lexer.h"
 
 int main() {
-   frontend::Lexer lexer("../main.fl");
-   const std::vector<std::unique_ptr<frontend::Token>> tokens = lexer.tokenize();
-
-   for (const auto &token: tokens) {
-      std::cout << token->getLine() << ":" << token->getColumn() << std::endl;
-   }
-
+   const std::string filepath = "../main.fl";
+   const base::FileReader fileReader(filepath);
+   frontend::Lexer lexer(fileReader);
+   lexer.tokenize();
    return 0;
 }
