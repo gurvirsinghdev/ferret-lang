@@ -1,8 +1,0 @@
-[
-{
-  "directory": "/Users/me/Developer/ferret-lang/build",
-  "command": "/usr/bin/c++ -I/Users/me/Developer/ferret-lang/include -std=c++2b -arch arm64 -o CMakeFiles/main.dir/src/main.cpp.o -c /Users/me/Developer/ferret-lang/src/main.cpp",
-  "file": "/Users/me/Developer/ferret-lang/src/main.cpp",
-  "output": "/Users/me/Developer/ferret-lang/build/CMakeFiles/main.dir/src/main.cpp.o"
-}
-]

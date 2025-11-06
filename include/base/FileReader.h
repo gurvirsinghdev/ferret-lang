@@ -15,7 +15,7 @@ namespace base {
          std::ifstream file(filepath);
          if (!file.is_open()) {
             std::cerr << "Unable to open the source file." << std::endl;
-            std::exit(1);
+            throw std::runtime_error("Unable to open the source file.");
          }
          sourceCode_.assign(std::istreambuf_iterator(file), {});
          file.close();
@@ -23,12 +23,12 @@ namespace base {
 
       [[nodiscard]] std::string getFilepath() const noexcept { return filepath_; }
       [[nodiscard]] std::string_view getSourceCode() const noexcept { return std::string_view(sourceCode_); }
-      [[nodiscard]] std::string getRawSourceCode() const noexcept { return sourceCode_; }
+      [[nodiscard]] const std::string& getRawSourceCode() const noexcept { return sourceCode_; }
 
    private:
       std::string filepath_;
       std::string sourceCode_;
    };
-} // namespace base
+}
 
 #endif // FERRET_LANG_FILEREADER_CPP_H
