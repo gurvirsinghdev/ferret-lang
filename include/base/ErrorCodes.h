@@ -3,7 +3,9 @@
 
 namespace base {
    enum class ErrorCode {
-      INVALID_FLOAT_LITERAL
+      INVALID_FLOAT_LITERAL,
+      INVALID_CHARACTER,
+      INVALID_VARIABLE_NAME
    };
 }
 

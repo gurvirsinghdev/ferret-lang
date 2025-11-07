@@ -27,7 +27,7 @@ namespace frontend {
    class Lexer {
    public:
       explicit Lexer(base::FileReader fileReader) :
-          fileReader_(std::move(fileReader)), line_(0), column_(0), position_(0) {}
+          fileReader_(std::move(fileReader)), line_(1), column_(1), position_(0) {}
 
       [[nodiscard]] std::variant<base::Diagnostics, std::vector<base::Token>> tokenize() { return parseSourceCode(); }
 
@@ -40,6 +40,13 @@ namespace frontend {
 
       [[nodiscard]] bool isEOF() const { return position_ >= fileReader_.getSourceCode().length(); }
       [[nodiscard]] char getCurrentCharacter() const { return fileReader_.getSourceCode()[position_]; }
+      [[nodiscard]] std::optional<char> getNextCharacter() const {
+         const auto &sourceCode = fileReader_.getSourceCode();
+         if (position_ + 1 >= sourceCode.size()) {
+            return std::nullopt;
+         }
+         return sourceCode[position_ + 1];
+      }
 
       void walkAhead() {
          column_++;
@@ -57,13 +64,14 @@ namespace frontend {
          return lineContent;
       }
 
-      [[nodiscard]] std::string getCurrentLine() const { return getLine(line_); }
+      [[nodiscard]] std::string getCurrentLine() const { return getLine(line_ - 1); }
 
       [[nodiscard]] std::variant<base::Diagnostics, std::vector<base::Token>> parseSourceCode() {
          base::Diagnostics diagnostics;
          std::vector<base::Token> tokens;
 
          while (!isEOF()) {
+            // Ignore whitespaces and other non-printable characters like (\n, \t).
             if (std::isspace(getCurrentCharacter())) {
                if (getCurrentCharacter() == '\n') {
                   line_++;
@@ -73,6 +81,7 @@ namespace frontend {
                continue;
             }
 
+            // Parse an integer or float from the source code.
             if (std::isdigit(getCurrentCharacter())) {
                bool isFloat = false;
                bool isInvalidFloatLiteral = false;
@@ -99,7 +108,7 @@ namespace frontend {
                   base::DiagnosticDetails diagnosticDetails = {
                         base::DIAGNOSTICS_ERROR,
                         fileReader_.getFilepath(),
-                        base::TokenLocation{line_ + 1, startingColumn, columnLength},
+                        base::TokenLocation{line_, startingColumn, columnLength},
                   };
                   base::LexerError lexerError(base::ErrorCode::INVALID_FLOAT_LITERAL, getCurrentLine(),
                                               "Invalid float literal.", "Numbers can have at most one decimal point.",
@@ -112,11 +121,71 @@ namespace frontend {
                                     tokenLocation);
                   tokens.emplace_back(token);
                }
-
                continue;
             }
 
+            // Parse an identifier or keyword from the source code.
+            if (std::isalpha(getCurrentCharacter()) || getCurrentCharacter() == '_') {
+               std::size_t startingColumn = column_;
+               std::size_t startingPosition = position_;
+               std::size_t startingColumnLength = 0;
+
+               bool invalidVariableName = false;
+
+               walkAhead();
+               while (true) {
+                  if (std::isspace(getCurrentCharacter()))
+                     break;
+                  if (std::isalnum(getCurrentCharacter()) || getCurrentCharacter() == '_') {
+                     walkAhead();
+                     continue;
+                  }
+
+                  if (const std::optional nextCharacter = getNextCharacter()) {
+                     if (const char validNextCharacter = *nextCharacter;
+                         std::isalnum(validNextCharacter) || validNextCharacter == '_') {
+                        if (!invalidVariableName) {
+                           startingColumn = column_;
+                           startingPosition = position_;
+                           invalidVariableName = true;
+                        }
+
+                        startingColumnLength++;
+                        walkAhead();
+                     }
+                     continue;
+                  }
+
+                  break;
+               }
+
+               if (invalidVariableName) {
+                  base::DiagnosticDetails diagnosticDetails = {base::DIAGNOSTICS_ERROR, fileReader_.getFilepath(),
+                                                               base::TokenLocation{line_, startingColumn, 1}};
+                  base::LexerError lexerError(base::ErrorCode::INVALID_VARIABLE_NAME, getCurrentLine(),
+                                              "Invalid variable name.",
+                                              "Variable names may only contain letters, numbers, and underscores.",
+                                              "Remove or replace any characters that do not follow this rule.");
+                  diagnostics.createBlock(diagnosticDetails, lexerError);
+                  continue;
+               }
+
+               base::TokenLocation tokenLocation{line_, startingPosition, position_ - startingPosition};
+               base::Token token(base::TokenType::TOKEN_IDENTIFIER, tokenLocation);
+               tokens.emplace_back(token);
+               continue;
+            }
+
+            std::size_t startingColumn = column_;
+            std::size_t startingPosition = position_;
             walkAhead();
+            base::DiagnosticDetails diagnosticDetails = {
+                  base::DIAGNOSTICS_ERROR, fileReader_.getFilepath(),
+                  base::TokenLocation{line_, startingColumn, position_ - startingPosition}};
+            base::LexerError lexerError(base::ErrorCode::INVALID_CHARACTER, getCurrentLine(), "Invalid character.",
+                                        "The source contains a character that is not recognized by the language.",
+                                        "Remove the invalid character.");
+            diagnostics.createBlock(diagnosticDetails, lexerError);
          }
 
          if (!diagnostics.isEmpty())
