@@ -2,8 +2,10 @@
 #define FERRET_LANG_LEXER_H
 
 #include <cstddef>
+#include <ranges>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -84,38 +86,73 @@ namespace frontend {
             // Parse an integer or float from the source code.
             if (std::isdigit(getCurrentCharacter())) {
                bool isFloat = false;
-               bool isInvalidFloatLiteral = false;
-               std::size_t startingColumn = column_;
-               std::size_t startingPosition = position_;
+               std::size_t digitStartingColumn = column_;
+               std::size_t digitStartingPosition = position_;
+
+               bool isCompilerRecovering = false;
+               struct DiagnosticError {
+                  std::size_t startingColumn;
+                  std::size_t length;
+               };
+               std::unordered_map<base::ErrorCode, std::vector<DiagnosticError>> errors = {};
 
                walkAhead();
-               while (std::isdigit(getCurrentCharacter()) || getCurrentCharacter() == '.') {
+               while (!isEOF()) {
+                  if (std::isspace(getCurrentCharacter()))
+                     break;
+
+                  if (std::isdigit(getCurrentCharacter())) {
+                     isCompilerRecovering = false;
+                     walkAhead();
+                     continue;
+                  }
                   if (getCurrentCharacter() == '.') {
                      if (isFloat) {
-                        if (!isInvalidFloatLiteral) {
-                           isInvalidFloatLiteral = true;
-                           startingColumn = column_;
-                           startingPosition = position_;
+                        if (!isCompilerRecovering) {
+                           isCompilerRecovering = true;
+                           errors[base::ErrorCode::INVALID_FLOAT_LITERAL].emplace_back(DiagnosticError{column_, 0});
                         }
+                        auto &[startingColumn, length] = errors[base::ErrorCode::INVALID_FLOAT_LITERAL].back();
+                        length++;
                      }
                      isFloat = true;
+                     walkAhead();
+                     continue;
                   }
+
+                  if (!isCompilerRecovering) {
+                     isCompilerRecovering = true;
+                     errors[base::ErrorCode::INVALID_NUMBER_LITERAL].emplace_back(DiagnosticError{column_, 0});
+                  }
+                  auto &[startingColumn, length] = errors[base::ErrorCode::INVALID_NUMBER_LITERAL].back();
+                  length++;
                   walkAhead();
                }
 
-               if (isInvalidFloatLiteral) {
-                  const std::size_t columnLength = position_ - startingPosition;
-                  base::DiagnosticDetails diagnosticDetails = {
-                        base::DIAGNOSTICS_ERROR,
-                        fileReader_.getFilepath(),
-                        base::TokenLocation{line_, startingColumn, columnLength},
-                  };
-                  base::LexerError lexerError(base::ErrorCode::INVALID_FLOAT_LITERAL, getCurrentLine(),
-                                              "Invalid float literal.", "Numbers can have at most one decimal point.",
-                                              "Remove any extra decimal points to form a valid number.");
-                  diagnostics.createBlock(diagnosticDetails, lexerError);
+               if (!errors.empty()) {
+                  for (const auto &[code, error]: errors) {
+                     for (const auto &[startingColumn, length]: error) {
+
+                        base::DiagnosticDetails diagnosticDetails = {
+                              base::DIAGNOSTICS_ERROR,
+                              fileReader_.getFilepath(),
+                              base::TokenLocation{line_, startingColumn, length},
+                        };
+                        base::LexerError lexerError(
+                              code, getCurrentLine(),
+                              code == base::ErrorCode::INVALID_FLOAT_LITERAL ? "Invalid float literal."
+                                                                             : "Invalid number literal.",
+                              code == base::ErrorCode::INVALID_FLOAT_LITERAL
+                                    ? "Numbers can have at most one decimal point."
+                                    : "This number is not written in a valid format.",
+                              code == base::ErrorCode::INVALID_FLOAT_LITERAL
+                                    ? "Remove any extra decimal points to form a valid number."
+                                    : "Check the number and remove any characters or symbols that do not belong.");
+                        diagnostics.createBlock(diagnosticDetails, lexerError);
+                     }
+                  }
                } else {
-                  base::TokenLocation tokenLocation{line_, startingPosition, position_ - startingPosition};
+                  base::TokenLocation tokenLocation{line_, digitStartingColumn, position_ - digitStartingPosition};
                   base::Token token(isFloat ? base::TokenType::TOKEN_FLOAT_LITERAL
                                             : base::TokenType::TOKEN_INTEGER_LITERAL,
                                     tokenLocation);
@@ -126,14 +163,14 @@ namespace frontend {
 
             // Parse an identifier or keyword from the source code.
             if (std::isalpha(getCurrentCharacter()) || getCurrentCharacter() == '_') {
-               std::size_t startingColumn = column_;
-               std::size_t startingPosition = position_;
-               std::size_t startingColumnLength = 0;
+               std::size_t startingIdentifierColumn = column_;
+               std::size_t startingIdentifierPosition = position_;
+               std::size_t startingIdentifierColumnLength = 0;
 
                bool invalidVariableName = false;
 
                walkAhead();
-               while (true) {
+               while (!isEOF()) {
                   if (std::isspace(getCurrentCharacter()))
                      break;
                   if (std::isalnum(getCurrentCharacter()) || getCurrentCharacter() == '_') {
@@ -144,15 +181,13 @@ namespace frontend {
                   if (const std::optional nextCharacter = getNextCharacter()) {
                      if (const char validNextCharacter = *nextCharacter;
                          std::isalnum(validNextCharacter) || validNextCharacter == '_') {
-                        if (!invalidVariableName) {
-                           startingColumn = column_;
-                           startingPosition = position_;
-                           invalidVariableName = true;
-                        }
-
-                        startingColumnLength++;
-                        walkAhead();
+                        invalidVariableName = true;
                      }
+                     if (!invalidVariableName) {
+                        startingIdentifierColumn = column_;
+                     }
+                     startingIdentifierColumnLength++;
+                     walkAhead();
                      continue;
                   }
 
@@ -160,8 +195,9 @@ namespace frontend {
                }
 
                if (invalidVariableName) {
-                  base::DiagnosticDetails diagnosticDetails = {base::DIAGNOSTICS_ERROR, fileReader_.getFilepath(),
-                                                               base::TokenLocation{line_, startingColumn, 1}};
+                  base::DiagnosticDetails diagnosticDetails = {
+                        base::DIAGNOSTICS_ERROR, fileReader_.getFilepath(),
+                        base::TokenLocation{line_, startingIdentifierColumn, startingIdentifierColumnLength}};
                   base::LexerError lexerError(base::ErrorCode::INVALID_VARIABLE_NAME, getCurrentLine(),
                                               "Invalid variable name.",
                                               "Variable names may only contain letters, numbers, and underscores.",
@@ -170,22 +206,27 @@ namespace frontend {
                   continue;
                }
 
-               base::TokenLocation tokenLocation{line_, startingPosition, position_ - startingPosition};
+               base::TokenLocation tokenLocation{line_, startingIdentifierPosition,
+                                                 position_ - startingIdentifierPosition};
                base::Token token(base::TokenType::TOKEN_IDENTIFIER, tokenLocation);
                tokens.emplace_back(token);
                continue;
             }
 
-            std::size_t startingColumn = column_;
-            std::size_t startingPosition = position_;
-            walkAhead();
-            base::DiagnosticDetails diagnosticDetails = {
-                  base::DIAGNOSTICS_ERROR, fileReader_.getFilepath(),
-                  base::TokenLocation{line_, startingColumn, position_ - startingPosition}};
-            base::LexerError lexerError(base::ErrorCode::INVALID_CHARACTER, getCurrentLine(), "Invalid character.",
-                                        "The source contains a character that is not recognized by the language.",
-                                        "Remove the invalid character.");
-            diagnostics.createBlock(diagnosticDetails, lexerError);
+            // Execution should not reach this point. All valid combinations are handled above.
+            // If we arrive here, the input represents a combination that the compiler cannot process.
+            {
+               std::size_t startingColumn = column_;
+               std::size_t startingPosition = position_;
+               walkAhead();
+               base::DiagnosticDetails diagnosticDetails = {
+                     base::DIAGNOSTICS_ERROR, fileReader_.getFilepath(),
+                     base::TokenLocation{line_, startingColumn, position_ - startingPosition}};
+               base::LexerError lexerError(base::ErrorCode::INVALID_CHARACTER, getCurrentLine(), "Invalid character.",
+                                           "The source contains a character that is not recognized by the language.",
+                                           "Remove the invalid character.");
+               diagnostics.createBlock(diagnosticDetails, lexerError);
+            }
          }
 
          if (!diagnostics.isEmpty())
